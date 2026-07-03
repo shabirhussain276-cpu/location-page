@@ -1,1 +1,1 @@
-# location-page
+# NEWS PAGE
